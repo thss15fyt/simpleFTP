@@ -8,11 +8,12 @@ commands = ["open", "user", "type", "binary", "system",
             "passive", "get", "put", "ls", "dir",
             "mkdir", "cd", "rmdir", "pwd", "exit",
             "quit", "bye", "help"]
-local_ip_address = "127.0.0.1"
 min_port = 20000
 max_port = 65535
 
+
 # client info
+global local_ip
 global connect_socket
 global connect_flag
 global port_listen_socket
@@ -22,6 +23,19 @@ global mode    # 1:port 2:passive
 
 
 # util functions
+
+def init():
+    global connect_flag, transfer_type, mode
+    connect_flag = False
+    transfer_type = 1
+    mode = 1
+
+
+def get_local_ip():
+    global local_ip
+    local_ip = input("Please input your ip address: ")
+
+
 def parse_input(line):
     space = line.find(' ')
     if space == -1:
@@ -43,23 +57,27 @@ def send_request(content):
 
 
 def data_connect():
-    global port_listen_socket, data_socket
+    global port_listen_socket, data_socket, ip_address
 
     if mode == 1:
         port_listen_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         while True:
             random_port = int(random.random() * (max_port - min_port) + min_port)
             try:
-                port_listen_socket.bind((local_ip_address, random_port))
+                port_listen_socket.bind((local_ip, random_port))
             except socket.error:
                 continue
             break
         port_listen_socket.listen(1)
-        send_request("PORT %s,%d,%d\r\n" % (local_ip_address.replace('.', ','), random_port / 256, random_port % 256))
-        recv_response()
+        send_request("PORT %s,%d,%d\r\n" % (local_ip.replace('.', ','), random_port / 256, random_port % 256))
+        response = recv_response()
+        if not response.startswith(("200")):
+            return False
     elif mode == 2:
         send_request("PASV\r\n")
         response = recv_response()
+        if not response.startswith(("227")):
+            return False
         begin = response.find(',') - 1
         end = response.rfind(',') + 1
         while response[begin].isdigit():
@@ -71,7 +89,10 @@ def data_connect():
         split_result = ip_and_port.split(',')
         ip_address = '.'.join(split_result[0:4])
         port = int(split_result[4]) * 256 + int(split_result[5])
+        data_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         data_socket.connect((ip_address, port))
+
+    return True
 
 
 def data_connect_close():
@@ -83,6 +104,7 @@ def data_connect_close():
 
 def connect_required():
     global connect_flag
+    print(connect_flag)
     if connect_flag:
         return True
     else:
@@ -133,10 +155,6 @@ def command_user(parameter):
     if not response.startswith(("230")):
         print("Login failed")
         return
-    # init client info
-    global transfer_type, mode
-    transfer_type = 1 # binary
-    mode = 1 # prompt
 
 
 def command_type(parameter):
@@ -182,7 +200,8 @@ def command_get(parameter):
         return
 
     global data_socket
-    data_connect()
+    if not data_connect():
+        return
     send_request("RETR %s\r\n" % (parameter))
     if mode == 1:
         data_socket, addr = port_listen_socket.accept()
@@ -211,7 +230,8 @@ def command_put(parameter):
         return
 
     global data_socket
-    data_connect()
+    if not data_connect():
+        return
     send_request("STOR %s\r\n" % (parameter))
     if mode == 1:
         data_socket, addr = port_listen_socket.accept()
@@ -234,7 +254,8 @@ def command_list(parameter):
         return
 
     global data_socket
-    data_connect()
+    if not data_connect():
+        return
     send_request("LIST\r\n")
     if mode == 1:
         data_socket, addr = port_listen_socket.accept()
@@ -321,8 +342,9 @@ command_functions = {
 
 
 def main():
-    global connect_flag
-    connect_flag = False
+
+    init()
+    get_local_ip()
 
     while True:
         line = input("ftp> ")
