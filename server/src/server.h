@@ -42,20 +42,25 @@ struct client_info {
 
     //basic
     int in_use;
-    char username[8192];
+    char username[BUFFER_SIZE];
     int connfd;
     int epfd;
-    FILE* file;
+
+    //statistics
+    int file_num;
+    int byte_num;
+    int current_file_byte_num;
 
     //status
-    char root[8192];
+    char root[BUFFER_SIZE];
     int has_username;
     int has_password;
     int has_login;
     client_mode mode;
 
-    //transfer
+    //transfer files
     int data_connfd;
+    FILE* file;
 
     char PORT_ip[16];
     int PORT_port;
@@ -90,8 +95,8 @@ int command_UNKNOWN(int fd, char* parameter, struct client_info* info);
 int listen_port(int port);
 int connect_port(char* ip, int port);
 int send_response(int fd, char* sentence);
-int send_file(int fd, FILE* file);
-int recv_file(int fd, FILE* file);
+void send_file(struct client_info* info);
+void recv_file(struct client_info* info);
 void read_request(int fd, char* buf);
 void parse_request(char* buf, char* verb, char* param);
 void parse_mix_address(char* mix_address, char* ip, int* port);
@@ -103,7 +108,8 @@ int send_directory_content(int fd, DIR* dir, char* directory);
 int check_username(char* username);
 int validate_user(char* username, char* password);
 struct client_info* create_client_info(int fd, char* root, int epfd);
-struct client_info* get_client_info(int fd);
+struct client_info* is_command_connect(int fd);
+struct client_info* is_data_connect(int fd);
 int close_client_info(int fd);
 void add_epoll_event(int epfd, int fd, int state);
 void delete_epoll_event(int epfd, int fd, int state);

@@ -114,29 +114,20 @@ int command_RETR(int fd, char* parameter, struct client_info* info) {
             }
             //send
             if (info->data_connfd != -1) {
+                int flags = fcntl(info->data_connfd, F_GETFL, 0);
+                fcntl(info->data_connfd, F_SETFL, flags | O_NONBLOCK);
+                add_epoll_event(info->epfd, info->data_connfd, EPOLLOUT);
                 //send begin response
                 char response[BUFFER_SIZE];
                 sprintf(response, send_begin, parameter, (int)status.st_size);
                 send_response(fd, response);
-                //send file
-                int send_status;
-                if((send_status = send_file(info->data_connfd, info->file)) == -1) {    //read from file fail
-                    send_response(fd, read_file_fail);
-                }
-                else if(send_status == -2){     //write to socket fail
-                    send_response(fd, connect_break);
-                }
-                else {  //send success
-                    send_response(fd, send_over);
-                }
                 if(info->mode == PASV)
                     close(info->PASV_listenfd);
-                close(info->data_connfd);
+                info->current_file_byte_num = 0;
             }
             else {  //connect or accept fail
                 send_response(fd, connect_fail);
             }
-            fclose(info->file);
         }
         else {  //find and open file fail
             send_response(fd, get_file_fail);
@@ -169,29 +160,20 @@ int command_STOR(int fd, char* parameter, struct client_info* info) {
             }
             //receive
             if (info->data_connfd != -1) {
+                int flags = fcntl(info->data_connfd, F_GETFL, 0);
+                fcntl(info->data_connfd, F_SETFL, flags | O_NONBLOCK);
+                add_epoll_event(info->epfd, info->data_connfd, EPOLLIN);
                 //receive begin response
                 char response[BUFFER_SIZE];
                 sprintf(response, recv_begin, parameter);
                 send_response(fd, response);
-                //receive file
-                int send_status;
-                if((send_status = recv_file(info->data_connfd, info->file)) == -1) {    //read from socket fail
-                    send_response(fd, connect_break);
-                }
-                else if(send_status == -2){     //write to file fail
-                    send_response(fd, write_file_fail);
-                }
-                else {   //receive success
-                    send_response(fd, recv_over);
-                }
                 if(info->mode == PASV)
                     close(info->PASV_listenfd);
-                close(info->data_connfd);
+                info->current_file_byte_num = 0;
             }
             else {  //connect or accept fail
                 send_response(fd, connect_fail);
             }
-            fclose(info->file);
         }
         else {  //create file fail
             send_response(fd, create_file_fail);
@@ -352,7 +334,11 @@ int command_QUIT(int fd, char* parameter, struct client_info* info) {
     if(info->PASV_listenfd > 0)
         close(info->PASV_listenfd);
 
-    send_response(fd, quit);    // TODO: response more info
+    char response[BUFFER_SIZE];
+    sprintf(response, statistics, info->byte_num, info->file_num);
+    send_response(fd, response);
+    send_response(fd, thanks);
+    send_response(fd, quit);   
     close(fd);
     close_client_info(fd);
     delete_epoll_event(info->epfd, fd, EPOLLIN | EPOLLET);

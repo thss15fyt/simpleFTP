@@ -40,9 +40,9 @@ int main(int argc, char **argv) {
 
 	while (1) {
 		int nfds = epoll_wait(epfd, events, MAX_CLIENT, 500);
-		for(int i = 0; i < nfds; ++i)
-        {
+		for(int i = 0; i < nfds; ++i) {
         	int fd  = events[i].data.fd;
+        	struct client_info* info;
             if(fd == listenfd) {
             	if ((connfd = accept(listenfd, NULL, NULL)) == -1) {
 					continue;
@@ -52,8 +52,17 @@ int main(int argc, char **argv) {
                 send_response(connfd, greeting);
             } 
             else if(events[i].events & EPOLLIN) {
-            	struct client_info* info = get_client_info(fd);
-            	serve_client(info, fd);
+            	if((info = is_data_connect(fd)) != NULL) {
+            		recv_file(info);
+            	}
+            	else if((info = is_command_connect(fd)) != NULL){
+            		serve_client(info, fd);
+            	}
+            }
+            else if(events[i].events & EPOLLOUT) {
+            	if((info = is_data_connect(fd)) != NULL) {
+            		send_file(info);
+            	}
             }
         }
     }		

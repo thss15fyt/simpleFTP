@@ -60,42 +60,56 @@ int send_response(int fd, char* sentence) {
     return p;
 }
 
-int send_file(int fd, FILE* file) {
+void send_file(struct client_info* info) {
     char buffer[BUFFER_SIZE];
-    while (1) {
-        int n_read = fread(buffer, 1, sizeof(buffer) - 1, file);
-        if (n_read < 0) {
-            return -1;
+    int n_read = fread(buffer, 1, sizeof(buffer), info->file);
+    if(n_read < 0) {    //read file fail
+        send_response(info->connfd, read_file_fail);
+        close(info->data_connfd);
+        fclose(info->file);
+    }
+    else if(n_read == 0) {      //send over
+        send_response(info->connfd, send_over);
+        close(info->data_connfd);
+        fclose(info->file);
+        info->file_num++;
+        info->byte_num += info->current_file_byte_num;
+    }  
+    else {      //send not over
+        int n_write;
+        if((n_write = write(info->data_connfd, buffer, n_read)) == -1) {
+            send_response(info->connfd, connect_break);
+            close(info->data_connfd);
+            fclose(info->file);
         }
-        else if(n_read == 0) {
-            break;
-        }
-        else {
-            int n_write;
-            if((n_write = write(fd, buffer, n_read)) == -1)
-                return -2;
-        }
-    } 
-    return 0;
+        info->current_file_byte_num += n_write;
+    }
 }
 
-int recv_file(int fd, FILE* file) {
+void recv_file(struct client_info* info) {
     char buffer[BUFFER_SIZE];
-    while (1) {
-        int n_read = read(fd, buffer, sizeof(buffer) - 1);
-        if (n_read < 0) {
-            return -1;
+    int n_read = read(info->data_connfd, buffer, sizeof(buffer));
+    if(n_read < 0) {    //recv fail
+        send_response(info->connfd, connect_break);
+        fclose(info->file);
+        close(info->data_connfd);
+    }
+    else if(n_read == 0) {      //recv over
+        send_response(info->connfd, recv_over);
+        fclose(info->file);
+        close(info->data_connfd);
+        info->file_num++;
+        info->byte_num += info->current_file_byte_num;
+    }
+    else {      //recv not over
+        int n_write;
+        if((n_write = fwrite(buffer, 1, n_read, info->file)) == -1) {
+            send_response(info->connfd, write_file_fail);
+            fclose(info->file);
+            close(info->data_connfd);
         }
-        else if(n_read == 0) {
-            break;
-        }
-        else {
-            int n_write;
-            if((n_write = fwrite(buffer, 1, n_read, file)) == -1)
-                return -2;
-        }
-    } 
-    return 0;
+        info->current_file_byte_num += n_write;
+    }
 }
 
 int send_file_stat(int fd, struct stat* status, char* name) {
@@ -253,6 +267,8 @@ struct client_info* create_client_info(int fd, char* root, int epfd) {
             list[i].has_login = 0;
             list[i].mode = NO;
             list[i].PASV_listenfd = -1;
+            list[i].file_num = 0;
+            list[i].byte_num = 0;
             strcpy(list[i].root, root);
             return &list[i];
         }
@@ -260,11 +276,20 @@ struct client_info* create_client_info(int fd, char* root, int epfd) {
     return NULL;
 }
 
-struct client_info* get_client_info(int fd) {
+struct client_info* is_command_connect(int fd) {
     struct client_info* list = client_info_list;
     for(int i = 0; i < MAX_EPOLL; ++i) {
         if(list[i].in_use && list[i].connfd == fd) {
-            list[i].connfd = fd;
+            return &list[i];
+        }
+    }
+    return NULL;
+}
+
+struct client_info* is_data_connect(int fd) {
+    struct client_info* list = client_info_list;
+    for(int i = 0; i < MAX_EPOLL; ++i) {
+        if(list[i].in_use && list[i].data_connfd == fd) {
             return &list[i];
         }
     }
